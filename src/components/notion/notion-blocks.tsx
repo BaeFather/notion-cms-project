@@ -83,6 +83,78 @@ function renderBlock(block: BlockWithChildren): React.ReactNode {
       )
     case "divider":
       return <hr className="my-6 border-border" />
+    case "image": {
+      const { image } = block
+      const src =
+        image.type === "external" ? image.external.url : image.file.url
+      const caption = image.caption.map((t) => t.plain_text).join("")
+      return (
+        <figure className="space-y-1">
+          {/* eslint-disable-next-line @next/next/no-img-element -- Notion 서명 URL은 만료되므로 next/image 최적화 대신 원본을 직접 사용 */}
+          <img src={src} alt={caption || "이미지"} className="rounded-lg" />
+          {caption && (
+            <figcaption className="text-center text-sm text-muted-foreground">
+              {caption}
+            </figcaption>
+          )}
+        </figure>
+      )
+    }
+    case "to_do":
+      return (
+        <div className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={block.to_do.checked}
+            disabled
+            className="mt-1.5 size-4 rounded border-input"
+          />
+          <span
+            className={cn(
+              block.to_do.checked && "text-muted-foreground line-through"
+            )}
+          >
+            <RichText richText={block.to_do.rich_text} />
+          </span>
+        </div>
+      )
+    case "callout": {
+      const icon = block.callout.icon
+      let iconNode: React.ReactNode = "📌"
+      if (icon?.type === "emoji") iconNode = icon.emoji
+      else if (icon?.type === "external")
+        iconNode = (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={icon.external.url} alt="" className="size-5" />
+        )
+      else if (icon?.type === "file")
+        iconNode = (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={icon.file.url} alt="" className="size-5" />
+        )
+
+      return (
+        <div className="flex gap-3 rounded-lg bg-muted p-4">
+          <span className="text-lg leading-none">{iconNode}</span>
+          <div className="leading-7">
+            <RichText richText={block.callout.rich_text} />
+          </div>
+        </div>
+      )
+    }
+    case "toggle":
+      return (
+        <details className="rounded-lg border p-3">
+          <summary className="cursor-pointer font-medium">
+            <RichText richText={block.toggle.rich_text} />
+          </summary>
+          {block.children.length > 0 && (
+            <div className="mt-2 pl-4">
+              <NotionBlocks blocks={block.children} />
+            </div>
+          )}
+        </details>
+      )
     default:
       return null
   }

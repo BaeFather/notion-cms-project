@@ -1,9 +1,5 @@
-import { Client } from "@notionhq/client"
-import type {
-  BlockObjectResponse,
-  PageObjectResponse,
-  PartialBlockObjectResponse,
-} from "@notionhq/client"
+import { Client, collectPaginatedAPI, isFullBlock, isFullPage } from "@notionhq/client"
+import type { BlockObjectResponse, PageObjectResponse } from "@notionhq/client"
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY })
 
@@ -19,23 +15,6 @@ export interface Post {
 
 export type BlockWithChildren = BlockObjectResponse & {
   children: BlockWithChildren[]
-}
-
-function isFullPage(
-  page: PageObjectResponse | { object: "page" } | unknown
-): page is PageObjectResponse {
-  return (
-    typeof page === "object" &&
-    page !== null &&
-    "properties" in page &&
-    "id" in page
-  )
-}
-
-function isFullBlock(
-  block: BlockObjectResponse | PartialBlockObjectResponse
-): block is BlockObjectResponse {
-  return "type" in block
 }
 
 function mapPageToPost(page: PageObjectResponse): Post {
@@ -65,14 +44,14 @@ function mapPageToPost(page: PageObjectResponse): Post {
   return { id: page.id, title, tags, createdAt, contentPreview }
 }
 
-/** 학습노트 목록을 최신순으로 가져온다 (F001) */
+/** 학습노트 목록을 최신순으로 가져온다 (F001). 100개를 넘어도 전부 가져온다. */
 export async function getPosts(): Promise<Post[]> {
-  const response = await notion.dataSources.query({
+  const results = await collectPaginatedAPI(notion.dataSources.query, {
     data_source_id: DATA_SOURCE_ID,
     sorts: [{ property: "CreatedAt", direction: "descending" }],
   })
 
-  return response.results.filter(isFullPage).map(mapPageToPost)
+  return results.filter(isFullPage).map(mapPageToPost)
 }
 
 /** 단일 글의 속성을 가져온다 (F002). 존재하지 않는 id는 null을 반환한다. */
@@ -86,14 +65,16 @@ export async function getPost(id: string): Promise<Post | null> {
   }
 }
 
-/** 페이지 본문 블록을 하위 블록까지 재귀적으로 가져온다 (F002) */
+/** 페이지 본문 블록을 하위 블록까지 재귀적으로 가져온다 (F002). 100개를 넘어도 전부 가져온다. */
 export async function getPostBlocks(
   blockId: string
 ): Promise<BlockWithChildren[]> {
-  const response = await notion.blocks.children.list({ block_id: blockId })
+  const results = await collectPaginatedAPI(notion.blocks.children.list, {
+    block_id: blockId,
+  })
 
   const blocks = await Promise.all(
-    response.results.filter(isFullBlock).map(async (block) => {
+    results.filter(isFullBlock).map(async (block) => {
       const children = block.has_children
         ? await getPostBlocks(block.id)
         : []
