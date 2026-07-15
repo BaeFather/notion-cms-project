@@ -72,13 +72,61 @@ function mapPageToPost(page: PageObjectResponse): Post {
   const createdAt =
     dateProp?.type === "date" ? dateProp.date?.start ?? null : null
 
-  const contentProp = props["Content"]
-  const contentPreview =
-    contentProp?.type === "rich_text"
-      ? contentProp.rich_text.map((t) => t.plain_text).join("")
-      : ""
+  return { id: page.id, title, tags, createdAt, contentPreview: "" }
+}
 
-  return { id: page.id, title, tags, createdAt, contentPreview }
+/** 블록의 rich_text를 순수 텍스트로 추출한다. rich_text가 없는 블록 타입은 빈 문자열을 반환한다. */
+function extractPlainText(block: BlockObjectResponse): string {
+  switch (block.type) {
+    case "paragraph":
+      return block.paragraph.rich_text.map((t) => t.plain_text).join("")
+    case "heading_1":
+      return block.heading_1.rich_text.map((t) => t.plain_text).join("")
+    case "heading_2":
+      return block.heading_2.rich_text.map((t) => t.plain_text).join("")
+    case "heading_3":
+      return block.heading_3.rich_text.map((t) => t.plain_text).join("")
+    case "quote":
+      return block.quote.rich_text.map((t) => t.plain_text).join("")
+    case "callout":
+      return block.callout.rich_text.map((t) => t.plain_text).join("")
+    case "to_do":
+      return block.to_do.rich_text.map((t) => t.plain_text).join("")
+    case "bulleted_list_item":
+      return block.bulleted_list_item.rich_text.map((t) => t.plain_text).join("")
+    case "numbered_list_item":
+      return block.numbered_list_item.rich_text.map((t) => t.plain_text).join("")
+    case "toggle":
+      return block.toggle.rich_text.map((t) => t.plain_text).join("")
+    default:
+      return ""
+  }
+}
+
+/** 본문이 없으면 빈 문자열, maxLength 이하면 그대로, 넘으면 잘라서 "..."을 붙인다 */
+function truncate(text: string, maxLength: number): string {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return ""
+  return trimmed.length > maxLength
+    ? `${trimmed.slice(0, maxLength)}...`
+    : trimmed
+}
+
+/** 글 본문 앞부분에서 미리보기 텍스트를 자동으로 추출한다 (F001 카드 미리보기, F004 검색 대상) */
+async function getPostPreview(pageId: string, maxLength = 30): Promise<string> {
+  try {
+    const response = await notion.blocks.children.list({
+      block_id: pageId,
+      page_size: 10,
+    })
+    const text = response.results
+      .filter(isFullBlock)
+      .map(extractPlainText)
+      .join(" ")
+    return truncate(text, maxLength)
+  } catch {
+    return ""
+  }
 }
 
 /** 학습노트 목록을 최신순으로 가져온다 (F001). 100개를 넘어도 전부 가져온다. */
@@ -89,7 +137,14 @@ export async function getPosts(): Promise<Post[]> {
       sorts: [{ property: "CreatedAt", direction: "descending" }],
     })
 
-    return results.filter(isFullPage).map(mapPageToPost)
+    const posts = results.filter(isFullPage).map(mapPageToPost)
+
+    return await Promise.all(
+      posts.map(async (post) => ({
+        ...post,
+        contentPreview: await getPostPreview(post.id),
+      }))
+    )
   } catch (error) {
     throw toFriendlyError(error)
   }
